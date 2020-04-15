@@ -1,3 +1,5 @@
+import pdb
+
 import inspect
 import torch
 import collections
@@ -95,6 +97,10 @@ def infer_concrete_type_builder(nn_module):
     for name, item in nn_module._parameters.items():
         assert item is None or isinstance(item, torch.Tensor)
         attr_type = infer_type(name, item)
+
+        print(name)
+        print(attr_type)
+
         # We currently have the invariant in various places in our code
         # that parameters must be Tensors. However, the nn.Module API also
         # allows NoneType parameters. These parameters are not returned as
@@ -314,7 +320,13 @@ def create_script_module_impl(nn_module, concrete_type, stubs_fn):
         stubs_fn:  Lambda that takes an nn.Module and generates a list of ScriptMethodStubs to compile.
     """
     cpp_module = torch._C._create_module_with_type(concrete_type.jit_type)
+
+    # Return ASTs of all function-to-compile.
     stubs = stubs_fn(nn_module)
+
+    # Uncomment to print to the AST.
+    # for stub in stubs:
+    #     print(stub.def_)
 
     def init_fn(script_module):
         # Initialize the ScriptModule:
@@ -358,6 +370,7 @@ def create_script_module_impl(nn_module, concrete_type, stubs_fn):
 
     # Compile methods if necessary
     if concrete_type not in concrete_type_store.methods_compiled:
+        # This will compile a specified function.
         create_methods_from_stubs(concrete_type, stubs)
         torch._C._run_emit_module_hook(cpp_module)
         concrete_type_store.methods_compiled.add(concrete_type)
@@ -382,7 +395,6 @@ def create_script_module_impl(nn_module, concrete_type, stubs_fn):
         script_method = functools.wraps(stub.original_method)(script_method)
 
         # Add the methods to the script_module directly. This ensures they will
-        # be found first when `name` is looked up (as opposed to the stubs or
         # nn.Module.forward)
         script_module.__dict__[name] = script_method
 

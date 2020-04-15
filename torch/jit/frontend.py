@@ -1,4 +1,7 @@
 import __future__
+
+from pprint import pprint
+
 import torch
 import sys
 import ast
@@ -6,6 +9,8 @@ import inspect
 import string
 from textwrap import dedent
 from torch._six import PY2
+
+# this will also import data structure defined in: torch/csrc/jit/python/python_tree_views.cpp
 from torch._C._jit_tree_views import *
 from torch._utils_internal import get_source_lines_and_file
 
@@ -169,6 +174,10 @@ def get_jit_def(fn, self_name=None):
         raise RuntimeError("Expected a single top-level function")
     leading_whitespace_len = len(source.split('\n', 1)[0]) - len(dedent_src.split('\n', 1)[0])
     type_line = torch.jit.annotations.get_type_line(source)
+
+    # this will create an instance of C++ class SourceRangeFactory which stores
+    # extra metadata about the function-to-be-compile.
+    # in torch/csrc/jit/python_tree_views.cpp
     ctx = SourceContext(source, filename, file_lineno, leading_whitespace_len, _uses_true_division(fn))
     return build_def(ctx, py_ast.body[0], type_line, self_name)
 
@@ -188,19 +197,31 @@ def build_class_def(ctx, py_def, methods, self_name):
 
 
 def build_def(ctx, py_def, type_line, self_name=None):
+    # py_def = py_ast.body[0]
     body = py_def.body
-    r = ctx.make_range(py_def.lineno + len(py_def.decorator_list),
-                       py_def.col_offset,
-                       py_def.col_offset + len("def"))
+
+    # this create an instance of C++ class SourceRange in
+    # torch/csrc/jit/frontend/source_range.h
+    # make_range is binded to SourceRangeFactory's create method.
+    r = ctx.make_range(py_def.lineno + len(py_def.decorator_list), # line
+                       py_def.col_offset,  # start_col
+                       py_def.col_offset + len("def")) # end_col
+
     param_list = build_param_list(ctx, py_def.args, self_name)
+
     return_type = None
     if getattr(py_def, 'returns', None) is not None:
         return_type = build_expr(ctx, py_def.returns)
+
+
+    # Def is deifined in tree_views.h that inherits TreeView
     decl = Decl(r, param_list, return_type)
     is_method = self_name is not None
     if type_line is not None:
         type_comment_decl = torch._C.parse_type_comment(type_line)
         decl = torch._C.merge_type_from_type_comment(decl, type_comment_decl, is_method)
+
+    # Def is deifined in tree_views.h that inherits TreeView
     return Def(Ident(r, py_def.name),
                decl,
                build_stmts(ctx, body))
