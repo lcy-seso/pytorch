@@ -31,6 +31,8 @@ struct ClassDef;
 struct SugaredValue;
 struct Resolver;
 
+struct For;
+
 using ResolverPtr = std::shared_ptr<Resolver>;
 struct Self {
   virtual ~Self() {}
